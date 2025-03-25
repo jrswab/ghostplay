@@ -59,7 +59,7 @@ func GetUserStateByID[T any](db *sql.DB, dbTableName string, id uuid.UUID) (*Pla
 	var state PlayerState[T]
 
 	query := fmt.Sprintf(`
-		SELECT *
+		SELECT id, user_name, phrase, level, xp, last_updated, flags, extra_data
 		FROM %s
 		WHERE id = $1
 		`, dbTableName)
@@ -67,8 +67,11 @@ func GetUserStateByID[T any](db *sql.DB, dbTableName string, id uuid.UUID) (*Pla
 	err := db.QueryRow(query, id).Scan(
 		&state.ID,
 		&state.UserName,
+		&state.Phrase,
 		&state.Level,
 		&state.XP,
+		&state.LastUpdated,
+		&state.Flags,
 		&state.ExtraData,
 	)
 
@@ -89,16 +92,19 @@ func GetUserStateByPhrase[T any](db *sql.DB, dbTableName, phrase string) (*Playe
 	var state PlayerState[T]
 
 	query := fmt.Sprintf(`
-		SELECT *
+		SELECT id, user_name, phrase, level, xp, last_updated, flags, extra_data
 		FROM %s
 		WHERE phrase = $1
 		`, dbTableName)
 
-	err := db.QueryRow(query, dbTableName, phrase).Scan(
+	err := db.QueryRow(query, phrase).Scan(
 		&state.ID,
 		&state.UserName,
+		&state.Phrase,
 		&state.Level,
 		&state.XP,
+		&state.LastUpdated,
+		&state.Flags,
 		&state.ExtraData,
 	)
 
@@ -124,10 +130,11 @@ func (p *PlayerState[T]) Save(db *sql.DB, dbTableName string, xpIncrease uint64)
 
 	if player == nil {
 		log.Printf("player id does not exist; creating...\n")
-		// Create new UUID
-		// Create new UserName
-		// Create new passphrase
-		// initPlayer(db, id, username, phrase, dbTableName)
+		// Create new player entry
+		err = initPlayer(db, p.ID, p.UserName, p.Phrase, dbTableName)
+		if err != nil {
+			return fmt.Errorf("failed to create new player; %s", err)
+		}
 		return nil
 	}
 
@@ -143,23 +150,31 @@ func (p *PlayerState[T]) Save(db *sql.DB, dbTableName string, xpIncrease uint64)
 		return fmt.Errorf("ghostplay is unable to marshal extraData; %s", err)
 	}
 
+	flags, err := json.Marshal(p.Flags)
+	if err != nil {
+		return fmt.Errorf("ghostplay is unable to marshal flags; %s", err)
+	}
+
 	query := fmt.Sprintf(`
 	UPDATE %s
 	SET level = $1,
 		xp = $2,
-		data = $3
-	WHERE id = $4
+		extra_data = $3,
+		flags = $4,
+		last_updated = $5
+	WHERE id = $6
 		`, dbTableName)
 
 	_, err = db.Exec(query,
-		dbTableName,
 		player.Level,
 		player.XP,
 		extraData,
+		flags,
+		time.Now(),
 		player.ID,
 	)
 
-	return nil
+	return err
 }
 
 type Leader struct {
